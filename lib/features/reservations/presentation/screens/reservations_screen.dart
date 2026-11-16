@@ -1,4 +1,6 @@
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -367,6 +369,18 @@ class _ReservationCard extends ConsumerWidget {
 
             _buildMedicineDetails(),
 
+            if (!_isExpired && !_isCompleted && !_isPaid) ...[
+              const SizedBox(height: 14),
+              _ReservationCountdown(
+                expiryDate: reservation.expiryDate,
+                onTimeExpired: () {
+                  ref
+                      .read(reservationsProvider.notifier)
+                      .fetchReservations();
+                },
+              ),
+            ],
+
             if (_canShowQr) ...[
               const SizedBox(height: 20),
               Center(
@@ -498,6 +512,180 @@ class _ReservationCard extends ConsumerWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReservationCountdown extends StatefulWidget {
+  final String expiryDate;
+  final VoidCallback onTimeExpired;
+
+  const _ReservationCountdown({
+    required this.expiryDate,
+    required this.onTimeExpired,
+  });
+
+  @override
+  State<_ReservationCountdown> createState() =>
+      _ReservationCountdownState();
+}
+
+class _ReservationCountdownState extends State<_ReservationCountdown> {
+  Timer? _timer;
+  DateTime? _expiresAt;
+  Duration _remaining = Duration.zero;
+  bool _refreshRequested = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _expiresAt = DateTime.tryParse(widget.expiryDate)?.toLocal();
+
+    _timer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateRemaining(),
+    );
+
+    _updateRemaining();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReservationCountdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.expiryDate != widget.expiryDate) {
+      _expiresAt = DateTime.tryParse(widget.expiryDate)?.toLocal();
+      _refreshRequested = false;
+
+      _timer?.cancel();
+
+      _timer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _updateRemaining(),
+      );
+
+      _updateRemaining();
+    }
+  }
+
+  void _updateRemaining() {
+    if (!mounted) return;
+
+    final expiry = _expiresAt;
+
+    if (expiry == null) {
+      _timer?.cancel();
+      setState(() {});
+      return;
+    }
+
+    final remaining = expiry.difference(DateTime.now());
+
+    if (remaining <= Duration.zero) {
+      _timer?.cancel();
+
+      setState(() {
+        _remaining = Duration.zero;
+      });
+
+      if (!_refreshRequested) {
+        _refreshRequested = true;
+        widget.onTimeExpired();
+      }
+
+      return;
+    }
+
+    setState(() {
+      _remaining = remaining;
+    });
+  }
+
+  String _twoDigits(int value) =>
+      value.toString().padLeft(2, '0');
+
+  String get _formattedTime {
+    final totalSeconds = _remaining.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    return '${_twoDigits(hours)}:${_twoDigits(minutes)}:${_twoDigits(seconds)}';
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_expiresAt == null) {
+      return const SizedBox.shrink();
+    }
+
+    final timeHasEnded = _remaining <= Duration.zero;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 12,
+      ),
+      decoration: BoxDecoration(
+        color: timeHasEnded
+            ? Colors.orange.withOpacity(0.08)
+            : const Color(0xFFFFF8E7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: timeHasEnded
+              ? Colors.orange.withOpacity(0.35)
+              : const Color(0xFFFFE2A8),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            timeHasEnded ? Icons.sync : Icons.timer_outlined,
+            color: timeHasEnded
+                ? Colors.orange
+                : const Color(0xFFB7791F),
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  timeHasEnded
+                      ? 'A confirmar estado da reserva'
+                      : 'Tempo restante da reserva',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF79551A),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  timeHasEnded ? 'A actualizar…' : _formattedTime,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                    color: timeHasEnded
+                        ? Colors.orange.shade800
+                        : const Color(0xFF9A6700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
